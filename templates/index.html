@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NoFly Planner</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        #map { height: calc(100vh - 100px); width: 100%; z-index: 1; }
+        .sidebar { height: calc(100vh - 100px); overflow-y: auto; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans">
+
+    <header class="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
+        <h1 class="text-2xl font-bold text-slate-800">🧭 NoFly <span class="text-slate-400 font-light">Planner</span></h1>
+        <div id="status" class="text-sm text-green-600 font-medium">● Connected</div>
+    </header>
+
+    <main class="flex p-4 gap-4">
+        <aside class="w-1/4 sidebar bg-white rounded-xl shadow-md p-6 border border-slate-200">
+            <div class="mb-6 relative">
+                <label class="block text-sm font-semibold text-slate-700 mb-2">Add a City</label>
+                <input type="text" id="city-search" placeholder="Search (e.g. Bangkok)" 
+                    class="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                <div id="autocomplete-results" class="absolute z-10 w-full bg-white border rounded-b-lg shadow-xl hidden"></div>
+            </div>
+
+            <hr class="my-6">
+
+            <div id="itinerary-list" class="space-y-4">
+                <p class="text-slate-400 text-center italic">Your cities will appear here...</p>
+            </div>
+        </aside>
+
+        <section class="flex-1 relative">
+            <div id="map" class="rounded-xl shadow-lg border border-slate-200"></div>
+        </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>

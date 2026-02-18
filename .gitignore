@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+poetry.lock
+
+# Database
+*.db
+*.sqlite3
+
+# Environment
+.env
