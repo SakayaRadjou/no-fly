@@ -9,7 +9,12 @@ class StepBase(BaseModel):
     lon: float
     position: int
     nights: int = 1
+    country: Optional[str] = None
+    duration: Optional[str] = None
     notes: Optional[str] = None
+    transport_mode: Optional[str] = "stop"
+    is_fixed_date: bool = False
+    fixed_date: Optional[str] = None
 
 class StepCreate(StepBase):
     """Schema for receiving a new step from the frontend."""
