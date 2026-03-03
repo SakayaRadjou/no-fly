@@ -10,6 +10,7 @@ class StepBase(BaseModel):
     position: int
     nights: int = 1
     country: Optional[str] = None
+    country_code: Optional[str] = None
     duration: Optional[str] = None
     notes: Optional[str] = None
     transport_mode: Optional[str] = "stop"

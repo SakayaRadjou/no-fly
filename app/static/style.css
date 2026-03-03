@@ -111,13 +111,59 @@
 .view-container.hidden { display: none; }
 
 /* Spreadsheet Styling */
-.sheet-table th { background: #f8f9fa; position: sticky; top: 0; z-index: 10; border-bottom: 2px solid #dee2e6; }
-.sheet-table td, .sheet-table th { border: 1px solid #e2e8f0; padding: 12px; font-size: 13px; }
+.sheet-table { border-collapse: collapse; width: 100%; }
+
+.sheet-table th { 
+    background: #f8f9fa; 
+    position: sticky; 
+    top: 0; 
+    z-index: 10; 
+    border-bottom: 2px solid #e2e8f0;
+    text-align: left;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.sheet-table td, .sheet-table th { 
+    border: 1px solid #e2e8f0; 
+    padding: 8px 12px; /* Slightly tighter */
+    font-size: 13px; 
+}
+
 .sheet-table tr:hover { background: #f8fafc; }
+
 .sheet-table textarea {
-    min-height: 40px;
-    line-height: 1.4;
-    display: block;
+    width: 100%;
+    border: none;
+    background: transparent;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    font-family: inherit;
+    resize: none;
+}
+
+.sheet-table textarea:focus {
+    background: #ffffff;
+    box-shadow: 0 0 0 2px #e2e8f0;
+    color: #334155;
+    outline: none;
+}
+
+/* Pulse Animation for Weather Loading */
+.weather-loading {
+    display: inline-block;
+    width: 40px;
+    height: 14px;
+    background: #e2e8f0; /* slate-200 */
+    border-radius: 4px;
+    animation: pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.5; }
+    50% { opacity: 1; }
+    100% { opacity: 0.5; }
 }
 
 /* Highlight Anchored Rows (Optional UI Hint) */

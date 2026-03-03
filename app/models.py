@@ -38,6 +38,7 @@ class Step(Base):
     # Location Data
     city_name = Column(String, nullable=False)
     country = Column(String, nullable=True)
+    country_code = Column(String, nullable=True)
     lat = Column(Float, nullable=False)
     lon = Column(Float, nullable=False)
     

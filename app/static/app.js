@@ -1,5 +1,7 @@
 // --- CONFIG & GLOBAL VARIABLES ---
 const MAPBOX_TOKEN = window.MAPBOX_TOKEN;
+const OPENWEATHER_API_KEY = window.OPENWEATHER_API_KEY
+let cityDataCache = {}; 
 const tripId = 1; 
 let markersMap = {};
 let routeLines = [];
@@ -20,8 +22,10 @@ function switchView(viewName) {
     if (viewName === 'calendar' && calendar) {
         calendar.render();
     }
-    // Refresh table/calendar content whenever we switch to them
-    updateAdvancedViews();
+
+    if (viewName === 'table') {
+        updateAdvancedViews();
+    }
 }
 
 // Initialize Map
@@ -98,16 +102,11 @@ function calculateItineraryDates() {
         badge.dataset.departureDate = calendarDate.toISOString().split('T')[0];
     });
 
-    updateAdvancedViews();
+    syncCalendarOnly();
 }
 
-function updateAdvancedViews() {
-    const tableBody = document.getElementById('table-body');
-    if (!tableBody) return;
-    
-    tableBody.innerHTML = '';
+function syncCalendarOnly() {
     const events = [];
-    
     const steps = Array.from(document.querySelectorAll('.step-container'));
     
     steps.forEach((stepEl, i) => {
@@ -115,44 +114,15 @@ function updateAdvancedViews() {
         const city = stepEl.querySelector('.font-semibold').innerText;
         const badge = document.getElementById(`date-badge-${id}`);
         
-        const arrivalDate = badge ? badge.dataset.fullDate : null;
-        const departureDate = badge ? badge.dataset.departureDate : null;
-        const frenchArrival = badge ? badge.dataset.frenchDate : "---";
-        
-        const nights = parseInt(document.getElementById(`nights-val-${id}`).innerText);
-        const transport = document.querySelector(`#step-${id} .transport-select`).value;
+        const arrivalDate = badge?.dataset.fullDate;
+        const departureDate = badge?.dataset.departureDate;
 
-        // 1. Table Sync
-        tableBody.innerHTML += `
-            <tr>
-                <td class="text-center font-bold text-slate-400">${i+1}</td>
-                <td class="font-bold">${city}</td>
-                <td class="text-blue-600">${frenchArrival}</td>
-                <td>${nights} nuits</td>
-                <td>${transport}</td>
-                <td><textarea onchange="updateTableNotes(${id}, this.value)">${stepEl.querySelector('textarea').value}</textarea></td>
-            </tr>`;
-
-        // 2. Calendar Sync with Gap Filling
         if (arrivalDate && departureDate) {
-            let actualEnd = departureDate;
-
-            // If there's a next city, we stretch this city until the next one arrives
-            if (i < steps.length - 1) {
-                const nextId = parseInt(steps[i+1].id.replace('step-', ''));
-                const nextArrival = document.getElementById(`date-badge-${nextId}`)?.dataset.fullDate;
-                if (nextArrival) {
-                    actualEnd = nextArrival; // Stretch!
-                }
-            }
-
             events.push({ 
                 title: `📍 ${city}`, 
                 start: arrivalDate, 
-                end: actualEnd, 
-                allDay: true,
-                backgroundColor: '#3b82f6',
-                borderColor: '#2563eb'
+                end: departureDate, 
+                allDay: true 
             });
         }
     });
@@ -160,6 +130,199 @@ function updateAdvancedViews() {
     if (calendar) {
         calendar.removeAllEvents();
         calendar.addEventSource(events);
+    }
+}
+
+// Dynamic Flag Generator (Works for any 2-letter ISO code)
+function getFlagEmoji(countryCode) {
+    if (!countryCode || countryCode.length !== 2) return "🏳️";
+    const codePoints = countryCode
+        .toUpperCase()
+        .split('')
+        .map(char =>  127397 + char.charCodeAt());
+    return String.fromCodePoint(...codePoints);
+}
+
+function getTransportEmoji(mode) {
+    const modes = {
+        'voiture': '🚗',
+        'bus': '🚌',
+        'train': '🚆',
+        'ferry': '⛴',
+        'pied': '🚶',
+        'stop': '👍'
+    };
+    return modes[mode.toLowerCase()] || '🚗'; // Default to car
+}
+
+async function updateAdvancedViews() {
+    const tableBody = document.getElementById('table-body');
+    if (!tableBody) return;
+        
+    let rowsHtml = '';
+    const events = []; // Keep your events array here
+    const steps = Array.from(document.querySelectorAll('.step-container'));
+    
+    // --- STEP 1: IMMEDIATE UI UPDATE (Table + Calendar) ---
+    for (const [i, stepEl] of steps.entries()) {
+        const id = parseInt(stepEl.id.replace('step-', ''));
+        const city = stepEl.querySelector('.font-semibold').innerText;
+        const badge = document.getElementById(`date-badge-${id}`);
+        
+        // Your existing Calendar Logic
+        const arrivalDate = badge?.dataset.fullDate;
+        const departureDate = badge?.dataset.departureDate;
+        if (arrivalDate && departureDate) {
+            let actualEnd = departureDate;
+            if (i < steps.length - 1) {
+                const nextId = parseInt(steps[i+1].id.replace('step-', ''));
+                const nextArrival = document.getElementById(`date-badge-${nextId}`)?.dataset.fullDate;
+                if (nextArrival) actualEnd = nextArrival;
+            }
+            events.push({ title: `📍 ${city}`, start: arrivalDate, end: actualEnd, allDay: true, backgroundColor: '#3b82f6' });
+        }
+
+        // Build Table Row (with Weather Placeholders)
+        const countryName = stepEl.dataset.country || "Inconnu";
+        const countryCode = stepEl.dataset.countryCode || ""; 
+        const nights = document.getElementById(`nights-val-${id}`)?.innerText || "0";
+        const transport = document.querySelector(`#step-${id} .transport-select`)?.value || "voiture";
+        const notesValue = stepEl.querySelector('textarea').value;
+
+        rowsHtml += `
+            <tr class="border-b hover:bg-slate-50 transition-all">
+                <td class="text-center font-bold text-slate-300 p-4">${i+1}</td>
+                <td class="font-bold text-slate-800">${city}</td>
+                <td class="text-slate-600">
+                    <span class="text-xl mr-2">${getFlagEmoji(countryCode)}</span>
+                    <span class="text-[10px] font-bold uppercase tracking-tighter text-slate-400">${countryName}</span>
+                </td>
+                <td class="text-blue-600 font-medium whitespace-nowrap">${badge?.dataset.frenchDate || '---'}</td>
+                <td class="text-slate-500 text-sm">${nights} nuits</td>
+                <td class="text-slate-500 text-sm">
+                    <span class="mr-1">${getTransportEmoji(transport)}</span> 
+                    <span class="capitalize">${transport}</span>
+                </td>
+                <td class="p-4" id="weather-td-${id}">
+                    <div class="flex items-center gap-2">
+                        <div class="weather-loading w-8 h-8 rounded-full"></div>
+                        <div class="flex flex-col gap-1">
+                            <div class="weather-loading w-12 h-3"></div>
+                            <div class="weather-loading w-8 h-2"></div>
+                        </div>
+                    </div>
+                </td>
+                <td class="p-2">
+                    <textarea class="w-full text-[11px] bg-transparent border-none outline-none resize-none text-slate-500 min-h-[40px]" 
+                            onchange="updateTableNotes(${id}, this.value)">${notesValue}</textarea>
+                </td>
+            </tr>`;
+    }
+
+    // Update Table and Calendar immediately
+    tableBody.innerHTML = rowsHtml;
+    if (calendar) {
+        calendar.removeAllEvents();
+        calendar.addEventSource(events);
+    }
+
+    // --- STEP 2: ASYNC WEATHER POP-IN ---
+    for (const stepEl of steps) {
+        const id = parseInt(stepEl.id.replace('step-', ''));
+        const lat = stepEl.dataset.lat;
+        const lon = stepEl.dataset.lon;
+        const badge = document.getElementById(`date-badge-${id}`);
+        const arrivalDate = badge?.dataset.fullDate;
+
+        const weather = await getWeather(lat, lon, arrivalDate);
+        
+        const weatherTd = document.getElementById(`weather-td-${id}`);
+        if (weatherTd && weather.temp !== "--") {
+            weatherTd.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <img src="${weather.icon}" class="w-10 h-10" alt="weather">
+                    <div class="flex flex-col">
+                        <span class="text-sm font-bold text-slate-700">${weather.temp}</span>
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
+                            <span class="text-orange-400">${weather.high}</span> / <span class="text-blue-300">${weather.low}</span>
+                        </span>
+                        <span class="text-[7px] text-slate-300 font-bold uppercase">Moy. 10 ans</span>
+                    </div>
+                </div>
+            `;
+        }
+    }
+}
+
+const weatherCache = {}; // Stores { 'lat,lon': { temp, icon, timestamp } }
+// Helper to wait between API calls
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function getWeather(lat, lon, targetDate) {
+    if (!targetDate) return { temp: "--", icon: "", high: "--", low: "--" };
+
+    const monthDay = targetDate.substring(5); 
+    const cacheKey = `10y_v2_${lat}_${lon}_${monthDay}`;
+    if (weatherCache[cacheKey]) return weatherCache[cacheKey];
+
+    // --- RATE LIMIT PROTECTION ---
+    // Wait 300ms before starting the fetch to avoid the 429 error
+    await sleep(300);
+
+    try {
+        const startYear = 2014;
+        const endYear = 2024;
+        
+        const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${startYear}-01-01&end_date=${endYear}-12-31&daily=temperature_2m_max,temperature_2m_min&timezone=auto`;
+        
+        const resp = await fetch(url);
+        
+        // If we still hit a 429, wait longer and tell the user
+        if (resp.status === 429) {
+            console.warn("Throttled. Waiting...");
+            await sleep(1000); 
+            return { temp: "...", icon: "", high: "", low: "" };
+        }
+
+        if (!resp.ok) throw new Error("Server error");
+        
+        const data = await resp.json();
+        const daily = data.daily;
+        let highs = [];
+        let lows = [];
+
+        daily.time.forEach((dateStr, index) => {
+            if (dateStr.endsWith(monthDay)) {
+                if (daily.temperature_2m_max[index] != null) {
+                    highs.push(daily.temperature_2m_max[index]);
+                    lows.push(daily.temperature_2m_min[index]);
+                }
+            }
+        });
+
+        if (highs.length === 0) throw new Error("No data found");
+
+        const avgHigh = Math.round(highs.reduce((a, b) => a + b) / highs.length);
+        const avgLow = Math.round(lows.reduce((a, b) => a + b) / lows.length);
+        const totalAvg = Math.round((avgHigh + avgLow) / 2);
+
+        let iconCode = "01d"; 
+        if (totalAvg > 28) iconCode = "01d"; 
+        if (totalAvg <= 28 && totalAvg > 22) iconCode = "02d"; 
+        if (totalAvg <= 22) iconCode = "03d"; 
+
+        const result = {
+            temp: `${totalAvg}°C`,
+            high: `${avgHigh}º`,
+            low: `${avgLow}º`,
+            icon: `https://openweathermap.org/img/wn/${iconCode}@2x.png`
+        };
+
+        weatherCache[cacheKey] = result;
+        return result;
+    } catch (e) {
+        console.error("Climate API Error:", e);
+        return { temp: "--", icon: "https://openweathermap.org/img/wn/01d@2x.png", high: "--", low: "--" };
     }
 }
 
@@ -213,23 +376,29 @@ async function addStep(feature) {
     const cityName = feature.text;
     
     let countryName = "Inconnu";
+    let countryCode = "";
+
     if (feature.context) {
         const countryContext = feature.context.find(c => c.id.startsWith('country'));
-        if (countryContext) countryName = countryContext.text;
+        if (countryContext) {
+            countryName = countryContext.text;
+            // Mapbox short_code is usually the 2-letter ISO code
+            countryCode = countryContext.short_code ? countryContext.short_code.toUpperCase() : "";
+        }
     }
 
     let position;
+    const currentSteps = document.querySelectorAll('.step-container');
     if (insertAtIndex === null) {
-        // Default: Add to the very end
-        position = document.querySelectorAll('.step-container').length;
+        position = currentSteps.length;
     } else {
-        // Add at the specific chosen index
         position = insertAtIndex + 1;
     }
 
     const newStep = {
         city_name: cityName,
         country: countryName,
+        country_code: countryCode,
         lat: lat,
         lon: lon,
         position: position,
@@ -247,14 +416,11 @@ async function addStep(feature) {
         if (response.ok) {
             const savedStep = await response.json();
             
-            // UI cleanup
             searchInput.value = '';
             resultsContainer.classList.add('hidden');
             
-            // If we inserted, we should probably reload to ensure order is perfect,
-            // otherwise, just render it.
             if (insertAtIndex !== null) {
-                location.reload(); // Simplest way to fix indices after insertion
+                location.reload(); 
             } else {
                 renderStep(savedStep);
             }
@@ -364,7 +530,12 @@ function renderStep(step) {
     const currentMode = step.transport_mode || 'voiture';
     const item = document.createElement('div');
     item.id = `step-${step.id}`;
+    
     item.className = "step-container relative mb-2";
+    item.dataset.country = step.country || "Inconnu";
+    item.dataset.countryCode = step.country_code || ""; 
+    item.dataset.lat = step.lat;
+    item.dataset.lon = step.lon;
 
     item.innerHTML = `
         <div class="leg-info ml-14 mb-2 flex items-center gap-2 text-xs font-medium text-slate-400">
@@ -377,7 +548,7 @@ function renderStep(step) {
                 onchange="updateDuration(${step.id}, this.value)">
         </div>
 
-        <div class="flex items-center gap-2 ml-auto">
+        <div class="flex items-center gap-2 ml-auto justify-end pr-2">
             <div class="flex items-center gap-1 bg-slate-100 rounded-lg px-2 py-1">
                 <input type="checkbox" id="fix-check-${step.id}" 
                     ${step.is_fixed_date ? 'checked' : ''} 
@@ -401,6 +572,8 @@ function renderStep(step) {
                     </div>
                     <div class="flex flex-col">
                         <span class="font-semibold text-slate-700 leading-tight">${step.city_name}</span>
+                        <span class="text-[9px] text-slate-400 uppercase tracking-widest">${step.country || ''}</span>
+                        
                         <div id="transport-container-${step.id}" class="mt-2 hidden">
                             <select class="transport-select text-[11px] p-1 border rounded bg-slate-50 outline-none" 
                                     onchange="handleTransportChange(${step.id}, this.value)" onclick="event.stopPropagation()">
