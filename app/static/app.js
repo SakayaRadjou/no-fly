@@ -1,6 +1,7 @@
 // --- CONFIG & GLOBAL VARIABLES ---
 const MAPBOX_TOKEN = window.MAPBOX_TOKEN;
 const OPENWEATHER_API_KEY = window.OPENWEATHER_API_KEY
+const isGuest = window.USER_ROLE === 'guest';
 let cityDataCache = {}; 
 const tripId = 1; 
 let markersMap = {};
@@ -329,6 +330,10 @@ async function getWeather(lat, lon, targetDate) {
 // Helper to sync table notes back to sidebar and DB
 async function updateTableNotes(id, text) {
     // Update sidebar UI for consistency
+    if (window.USER_ROLE === 'guest') {
+        alert("You are in viewer mode and cannot edit notes.");
+        return;
+    }
     const sidebarTextarea = document.querySelector(`#step-${id} textarea`);
     if (sidebarTextarea) sidebarTextarea.value = text;
     
@@ -517,6 +522,7 @@ function cancelInsertion() {
 const listElement = document.getElementById('itinerary-list');
 const sortable = new Sortable(listElement, {
     animation: 150,
+    disabled: isGuest, // If true, they can't even pick up a card
     handle: '.drag-handle', // Ensure this class matches the HTML below
     onEnd: () => {
         recalculateNumbers();
@@ -653,6 +659,10 @@ async function handleTransportChange(id, mode) {
 }
 
 async function updateNights(id, delta) {
+    if (window.USER_ROLE === 'guest') {
+        alert("You are in viewer mode and cannot edit nights.");
+        return;
+    }
     const el = document.getElementById(`nights-val-${id}`);
     let val = Math.max(0, parseInt(el.innerText) + delta);
     el.innerText = val;
@@ -664,6 +674,10 @@ async function updateNights(id, delta) {
 }
 
 async function updateNotes(id, text) {
+    if (window.USER_ROLE === 'guest') {
+        alert("You are in viewer mode and cannot edit notes.");
+        return;
+    }
     await fetch(`/steps/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -721,6 +735,10 @@ async function calculateRouting() {
 }
 
 async function updateDuration(id, value) {
+    if (window.USER_ROLE === 'guest') {
+        alert("You are in viewer mode and cannot edit duration.");
+        return;
+    }
     await fetch(`/steps/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -777,6 +795,10 @@ async function toggleFixedDate(id, isChecked) {
 }
 
 async function updateFixedDateValue(id, value) {
+    if (window.USER_ROLE === 'guest') {
+        alert("You are in viewer mode and cannot edit fixed dates.");
+        return;
+    }
     await fetch(`/steps/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
