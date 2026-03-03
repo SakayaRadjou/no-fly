@@ -1,13 +1,28 @@
 // --- CONFIG & GLOBAL VARIABLES ---
 const MAPBOX_TOKEN = window.MAPBOX_TOKEN;
-
-if (!MAPBOX_TOKEN || MAPBOX_TOKEN.includes("{{")) {
-    console.error("❌ Mapbox Token is missing or not rendered by Jinja2!");
-}
 const tripId = 1; 
 let markersMap = {};
 let routeLines = [];
 let insertAtIndex = null;
+let calendar;
+
+// --- VIEW SWITCHER ---
+function switchView(viewName) {
+    document.querySelectorAll('.view-container').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.view-btn').forEach(btn => {
+        btn.classList.remove('bg-white', 'shadow-sm', 'text-blue-600');
+        btn.classList.add('text-slate-500');
+    });
+
+    document.getElementById(`view-${viewName}`).classList.remove('hidden');
+    document.getElementById(`btn-${viewName}`).classList.add('bg-white', 'shadow-sm', 'text-blue-600');
+    
+    if (viewName === 'calendar' && calendar) {
+        calendar.render();
+    }
+    // Refresh table/calendar content whenever we switch to them
+    updateAdvancedViews();
+}
 
 // Initialize Map
 const map = L.map('map', { zoomControl: false }).setView([13.7563, 100.5018], 5);
@@ -24,6 +39,139 @@ const customIcon = L.divIcon({
     iconSize: [30, 30],
     iconAnchor: [15, 15]
 });
+
+// --- INITIALIZE CALENDAR ---
+document.addEventListener('DOMContentLoaded', () => {
+    const calendarEl = document.getElementById('calendar-el');
+    calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        height: '100%',
+        headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
+        eventColor: '#3b82f6',
+        displayEventTime: false,
+        eventDidMount: function(info) {
+            info.el.title = info.event.title; // Show tooltip on hover
+        }
+    });
+    loadItinerary();
+});
+
+// --- DATE CALCULATION & SYNC ---
+function calculateItineraryDates() {
+    const startInput = document.getElementById('trip-start-date');
+    if (!startInput || !startInput.value) return;
+
+    let calendarDate = new Date(startInput.value);
+    const steps = Array.from(document.querySelectorAll('.step-container'));
+
+    steps.forEach((stepElement, index) => {
+        const stepId = parseInt(stepElement.id.replace('step-', ''));
+        const isFixed = document.getElementById(`fix-check-${stepId}`).checked;
+        const fixedVal = document.getElementById(`fixed-date-val-${stepId}`).value;
+        const nights = parseInt(document.getElementById(`nights-val-${stepId}`).innerText) || 0;
+        const timeVal = document.getElementById(`duration-input-${stepId}`)?.value || "00:00";
+        const [hours] = timeVal.split(':').map(Number);
+
+        // --- ANCHOR LOGIC ---
+        if (isFixed && fixedVal) {
+            calendarDate = new Date(fixedVal);
+        } else if (index > 0 && hours >= 14) {
+            calendarDate.setDate(calendarDate.getDate() + 1);
+        }
+
+        const badge = document.getElementById(`date-badge-${stepId}`);
+        
+        // Date Formatting: "3 Mars"
+        const day = calendarDate.getDate();
+        const month = calendarDate.toLocaleDateString('fr-FR', { month: 'long' });
+        const formattedDateFR = `${day} ${month.charAt(0).toUpperCase() + month.slice(1)}`;
+        
+        // Store attributes for Table and Calendar sync
+        badge.innerText = formattedDateFR; 
+        badge.dataset.fullDate = calendarDate.toISOString().split('T')[0];
+        badge.dataset.frenchDate = formattedDateFR;
+
+        // Advance the calendar for the next city
+        calendarDate.setDate(calendarDate.getDate() + nights);
+        
+        // Store when you leave this city (useful for calendar stretching)
+        badge.dataset.departureDate = calendarDate.toISOString().split('T')[0];
+    });
+
+    updateAdvancedViews();
+}
+
+function updateAdvancedViews() {
+    const tableBody = document.getElementById('table-body');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = '';
+    const events = [];
+    
+    const steps = Array.from(document.querySelectorAll('.step-container'));
+    
+    steps.forEach((stepEl, i) => {
+        const id = parseInt(stepEl.id.replace('step-', ''));
+        const city = stepEl.querySelector('.font-semibold').innerText;
+        const badge = document.getElementById(`date-badge-${id}`);
+        
+        const arrivalDate = badge ? badge.dataset.fullDate : null;
+        const departureDate = badge ? badge.dataset.departureDate : null;
+        const frenchArrival = badge ? badge.dataset.frenchDate : "---";
+        
+        const nights = parseInt(document.getElementById(`nights-val-${id}`).innerText);
+        const transport = document.querySelector(`#step-${id} .transport-select`).value;
+
+        // 1. Table Sync
+        tableBody.innerHTML += `
+            <tr>
+                <td class="text-center font-bold text-slate-400">${i+1}</td>
+                <td class="font-bold">${city}</td>
+                <td class="text-blue-600">${frenchArrival}</td>
+                <td>${nights} nuits</td>
+                <td>${transport}</td>
+                <td><textarea onchange="updateTableNotes(${id}, this.value)">${stepEl.querySelector('textarea').value}</textarea></td>
+            </tr>`;
+
+        // 2. Calendar Sync with Gap Filling
+        if (arrivalDate && departureDate) {
+            let actualEnd = departureDate;
+
+            // If there's a next city, we stretch this city until the next one arrives
+            if (i < steps.length - 1) {
+                const nextId = parseInt(steps[i+1].id.replace('step-', ''));
+                const nextArrival = document.getElementById(`date-badge-${nextId}`)?.dataset.fullDate;
+                if (nextArrival) {
+                    actualEnd = nextArrival; // Stretch!
+                }
+            }
+
+            events.push({ 
+                title: `📍 ${city}`, 
+                start: arrivalDate, 
+                end: actualEnd, 
+                allDay: true,
+                backgroundColor: '#3b82f6',
+                borderColor: '#2563eb'
+            });
+        }
+    });
+
+    if (calendar) {
+        calendar.removeAllEvents();
+        calendar.addEventSource(events);
+    }
+}
+
+// Helper to sync table notes back to sidebar and DB
+async function updateTableNotes(id, text) {
+    // Update sidebar UI for consistency
+    const sidebarTextarea = document.querySelector(`#step-${id} textarea`);
+    if (sidebarTextarea) sidebarTextarea.value = text;
+    
+    // Save to DB
+    await updateNotes(id, text);
+}
 
 // --- AUTOCOMPLETE & SEARCH LOGIC ---
 
@@ -406,44 +554,6 @@ async function updateDuration(id, value) {
         body: JSON.stringify({ duration: value })
     });
     calculateItineraryDates(); // Recalculate dates immediately
-}
-
-function calculateItineraryDates() {
-    const startInput = document.getElementById('trip-start-date');
-    if (!startInput || !startInput.value) return;
-
-    let calendarDate = new Date(startInput.value);
-    const steps = Array.from(document.querySelectorAll('.step-container'));
-
-    steps.forEach((stepElement, index) => {
-        const stepId = parseInt(stepElement.id.replace('step-', ''));
-        const isFixed = document.getElementById(`fix-check-${stepId}`).checked;
-        const fixedVal = document.getElementById(`fixed-date-val-${stepId}`).value;
-        const nights = parseInt(document.getElementById(`nights-val-${stepId}`).innerText) || 0;
-        const timeVal = document.getElementById(`duration-input-${stepId}`)?.value || "00:00";
-        const [hours, _] = timeVal.split(':').map(Number);
-
-        // --- THE ANCHOR LOGIC ---
-        
-        if (isFixed && fixedVal) {
-            // "Savepoint" triggered: Ignore previous calculations, use this date!
-            calendarDate = new Date(fixedVal);
-        } else if (index > 0) {
-            // Standard transit logic
-            if (hours >= 14) calendarDate.setDate(calendarDate.getDate() + 1);
-        }
-
-        // --- UPDATE UI ---
-        
-        const badge = document.getElementById(`date-badge-${stepId}`);
-        const options = { weekday: 'short', day: 'numeric', month: 'short' };
-        
-        // Update the badge text (even if hidden, for internal logic consistency)
-        badge.innerText = calendarDate.toLocaleDateString('fr-FR', options);
-
-        // Advance calendar for the NEXT step
-        calendarDate.setDate(calendarDate.getDate() + nights);
-    });
 }
 
 async function loadItinerary() {

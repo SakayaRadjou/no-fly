@@ -9,20 +9,28 @@
     <link rel="stylesheet" href="/static/style.css">
 
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
     <script>
         window.MAPBOX_TOKEN = "{{ MAPBOX_TOKEN }}";
-        console.log("Token loaded from FastAPI:", window.MAPBOX_TOKEN ? "Yes" : "No");
     </script> 
     <script src="/static/app.js" defer></script>
 </head>
-<body class="bg-slate-50 font-sans">
+<body class="bg-slate-50 font-sans overflow-hidden">
 
-    <header class="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
-        <h1 class="text-2xl font-bold text-slate-800">🧭 NoFly <span class="text-slate-400 font-light">Planner</span></h1>
+    <header class="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-[1000]">
+        <div class="flex items-center gap-8">
+            <h1 class="text-2xl font-bold text-slate-800">🧭 NoFly <span class="text-slate-400 font-light">Planner</span></h1>
+            
+            <nav class="flex bg-slate-100 p-1 rounded-lg">
+                <button onclick="switchView('map')" class="view-btn px-4 py-1.5 rounded-md text-sm font-medium transition-all bg-white shadow-sm text-blue-600" id="btn-map">Map</button>
+                <button onclick="switchView('table')" class="view-btn px-4 py-1.5 rounded-md text-sm font-medium transition-all text-slate-500" id="btn-table">Table</button>
+                <button onclick="switchView('calendar')" class="view-btn px-4 py-1.5 rounded-md text-sm font-medium transition-all text-slate-500" id="btn-calendar">Calendar</button>
+            </nav>
+        </div>
         <div id="status" class="text-sm text-green-600 font-medium">● Connected</div>
     </header>
 
-    <main class="flex flex-col md:flex-row p-2 md:p-4 gap-4">
+    <main id="view-map" class="view-container active flex flex-col md:flex-row p-2 md:p-4 gap-4">
         <aside class="w-full md:w-96 bg-white rounded-xl shadow-md p-4 border border-slate-200 order-2 md:order-1 sidebar-scroll">
             <div class="mb-6">
                 <label class="block text-sm font-semibold text-slate-700 mb-2">Add a City</label>
@@ -31,35 +39,50 @@
                         class="w-full border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base"> 
                     <div id="autocomplete-results" class="absolute z-10 w-full bg-white border rounded-b-lg shadow-xl hidden"></div>
                 </div>
-                <p id="insert-label" class="text-xs text-blue-500 mt-2 hidden italic">Inserting after selected leg...</p>
+                <p id="insert-label" class="text-xs text-blue-500 mt-2 hidden italic">Inserting...</p>
             </div>
 
-    <div class="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
-        <label class="block text-[10px] font-bold text-blue-500 uppercase mb-1">Date de départ</label>
-        <input type="date" id="trip-start-date" value="2026-03-07" 
-            class="w-full bg-white border-none rounded text-sm p-1 outline-none focus:ring-2 focus:ring-blue-300"
-            onchange="calculateItineraryDates()">
-    </div>
+            <div class="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                <label class="block text-[10px] font-bold text-blue-500 uppercase mb-1">Date de départ</label>
+                <input type="date" id="trip-start-date" value="2026-03-07" 
+                    class="w-full bg-white border-none rounded text-sm p-1 outline-none"
+                    onchange="calculateItineraryDates()">
+            </div>
 
-    <div class="flex justify-center mb-4">
-        <button onclick="setInsertPosition(-1)" 
-            class="group flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-blue-500 transition-colors">
-            <span class="bg-slate-100 group-hover:bg-blue-100 rounded-full p-1">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4v16m8-8H4" /></svg>
-            </span>
-            Commencer le voyage ici
-        </button>
-    </div>
+            <div class="flex justify-center mb-4">
+                <button onclick="setInsertPosition(-1)" class="group flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-blue-500">
+                    <span class="bg-slate-100 group-hover:bg-blue-100 rounded-full p-1">+</span>
+                    Commencer ici
+                </button>
+            </div>
 
-    <div id="itinerary-list" class="space-y-1"></div>
-            <div id="itinerary-list" class="space-y-1">
-                </div>
+            <div id="itinerary-list" class="space-y-1"></div>
         </aside>
 
         <section class="flex-1 relative order-1 md:order-2">
             <div id="map" class="rounded-xl shadow-lg border border-slate-200"></div>
         </section>
     </main>
+
+    <div id="view-table" class="view-container bg-white overflow-auto hidden">
+        <table class="w-full sheet-table">
+            <thead>
+                <tr>
+                    <th class="w-12 text-center">#</th>
+                    <th>City</th>
+                    <th>Arrival Date</th>
+                    <th>Nights</th>
+                    <th>Transport</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+        </table>
+    </div>
+
+    <div id="view-calendar" class="view-container bg-white p-6 hidden">
+        <div id="calendar-el" class="h-full"></div>
+    </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>

@@ -106,6 +106,25 @@
     cursor: grabbing;
 }
 
+/* This ensures the views take up the full screen height minus the header */
+.view-container { height: calc(100vh - 73px); }
+.view-container.hidden { display: none; }
+
+/* Spreadsheet Styling */
+.sheet-table th { background: #f8f9fa; position: sticky; top: 0; z-index: 10; border-bottom: 2px solid #dee2e6; }
+.sheet-table td, .sheet-table th { border: 1px solid #e2e8f0; padding: 12px; font-size: 13px; }
+.sheet-table tr:hover { background: #f8fafc; }
+.sheet-table textarea {
+    min-height: 40px;
+    line-height: 1.4;
+    display: block;
+}
+
+/* Highlight Anchored Rows (Optional UI Hint) */
+.step-container:has(input[type="checkbox"]:checked) {
+    border-left: 4px solid #3b82f6;
+}
+
 /* Admin Notes Styling */
 textarea.admin-notes {
     resize: none;
