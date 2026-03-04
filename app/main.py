@@ -99,6 +99,12 @@ async def home(request: Request, role: str = Depends(get_current_user)):
     })
 
 # PUBLIC (Requires Guest or Admin login)
+@app.get("/trips/all", response_model=List[schemas.Trip])
+def get_all_trips(db: Session = Depends(get_db), role: str = Depends(get_current_user)):
+    """Returns all trips for the dropdown selector."""
+    return db.query(models.Trip).all()
+
+# PUBLIC (Requires Guest or Admin login)
 @app.get("/trips/{trip_id}/steps/", response_model=List[schemas.Step])
 def get_steps(trip_id: int, db: Session = Depends(get_db), role: str = Depends(get_current_user)):
     return db.query(models.Step).filter(models.Step.trip_id == trip_id).order_by(models.Step.position).all()

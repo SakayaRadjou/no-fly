@@ -27,8 +27,27 @@
                 <button onclick="switchView('table')" class="view-btn px-4 py-1.5 rounded-md text-sm font-medium transition-all text-slate-500" id="btn-table">Table</button>
                 <button onclick="switchView('calendar')" class="view-btn px-4 py-1.5 rounded-md text-sm font-medium transition-all text-slate-500" id="btn-calendar">Calendar</button>
             </nav>
+
+            <div class="flex items-center gap-2 border-l pl-8 ml-2 border-slate-200">
+                <label for="trip-selector" class="text-xs font-bold uppercase tracking-wider text-slate-400">Voyage:</label>
+                <select id="trip-selector" 
+                        onchange="switchTrip(this.value)"
+                        class="bg-slate-50 border border-slate-200 rounded-md px-3 py-1.5 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer">
+                    </select>
+                
+                <button onclick="createNewTripPrompt()" 
+                        class="admin-only p-1.5 text-blue-600 hover:bg-blue-50 rounded-full transition-colors tooltip"
+                        title="Nouveau voyage">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                </button>
+            </div>
         </div>
-        <div id="status" class="text-sm text-green-600 font-medium">● Connected</div>
+
+        <div class="flex items-center gap-4">
+            <div id="status" class="text-sm text-green-600 font-medium">● Connected</div>
+        </div>
     </header>
 
     <main id="view-map" class="view-container active flex flex-col md:flex-row p-2 md:p-4 gap-4">
