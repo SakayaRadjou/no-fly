@@ -115,9 +115,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
         height: '100%',
-        headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
+        headerToolbar: { 
+            left: 'prev,next today', 
+            center: 'title', 
+            right: 'dayGridMonth,timeGridWeek' 
+        },
         eventColor: '#3b82f6',
-        displayEventTime: false
+        displayEventTime: false,        
+        eventOrder: "start",
+        dayMaxEventRows: false, 
+        eventDisplay: 'block' 
     });
 
     // 2. Load Data
@@ -367,30 +374,47 @@ function calculateItineraryDates() {
 
 function syncCalendarOnly() {
     const events = [];
-    const steps = Array.from(document.querySelectorAll('.step-container')).filter(el => el.dataset.visiting !== 'false');
+    const steps = Array.from(document.querySelectorAll('.step-container'))
+                      .filter(el => el.dataset.visiting !== 'false');
+
+    // 5 distinct shades of blue to prevent same-color touching
+    const blueShades = [
+        '#1e3a8a', // Darkest
+        '#1d4ed8', 
+        '#2563eb', 
+        '#3b82f6', 
+        '#60a5fa'  // Lightest
+    ];
 
     steps.forEach((stepEl, i) => {
         const id = parseInt(stepEl.id.replace('step-', ''));
         const city = stepEl.querySelector('.font-semibold').innerText;
         const badge = document.getElementById(`date-badge-${id}`);
-        
         const arrivalDate = badge?.dataset.fullDate;
-        const departureDate = badge?.dataset.departureDate;
 
-        if (arrivalDate && departureDate) {
-            let actualEnd = departureDate;
-            // Stretch event to next arrival if available
+        const countryCode = stepEl.dataset.countryCode; 
+        const flag = getFlagEmoji(countryCode); 
+
+        // Cycle through the 5 colors using the modulo operator
+        const barColor = blueShades[i % 5];
+
+        if (arrivalDate) {
+            let nextArrival;
             if (i < steps.length - 1) {
                 const nextId = parseInt(steps[i+1].id.replace('step-', ''));
-                const nextArrival = document.getElementById(`date-badge-${nextId}`)?.dataset.fullDate;
-                if (nextArrival) actualEnd = nextArrival;
+                nextArrival = document.getElementById(`date-badge-${nextId}`)?.dataset.fullDate;
+            } else {
+                nextArrival = badge?.dataset.departureDate;
             }
-            events.push({
-                title: `📍 ${city}`, 
-                start: arrivalDate, 
-                end: actualEnd, 
-                allDay: true,
-                backgroundColor: '#3b82f6'
+
+            events.push({ 
+                title: `${flag} ${city}`,
+                start: `${arrivalDate}T12:00:00`, 
+                end: `${nextArrival}T13:00:00`,   
+                allDay: false, 
+                backgroundColor: barColor,
+                borderColor: barColor,
+                textColor: '#ffffff'
             });
         }
     });
