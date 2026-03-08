@@ -124,9 +124,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadTrips();
     await loadItinerary();
 
-    // 3. New: Initialize Inline Search (Pop-up)
+    // 2. Initialize Inline Search (New SearchBox Version)
     const inlineInput = document.getElementById('inline-search-input');
     const inlineResults = document.getElementById('inline-autocomplete-results');
+    
+    // Reuse a session token for the inline search session
+    let inlineSessionToken = Math.random().toString(36).substring(2, 15);
 
     if (inlineInput) {
         inlineInput.addEventListener('input', async (e) => {
@@ -135,24 +138,44 @@ document.addEventListener('DOMContentLoaded', async () => {
                 inlineResults.classList.add('hidden');
                 return;
             }
-            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=place,address&limit=5`;
+
+            // Broaden types to 'locality' and 'poi' to find small islands/villages in Asia
+            const center = map.getCenter();
+            const url = `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(query)}&language=en&types=place,city,locality,neighborhood&proximity=${center.lng},${center.lat}&access_token=${MAPBOX_TOKEN}&session_token=${inlineSessionToken}`;
+
             try {
                 const res = await fetch(url);
                 const data = await res.json();
                 inlineResults.innerHTML = '';
                 inlineResults.classList.remove('hidden');
 
-                data.features.forEach(feature => {
-                    const div = document.createElement('div');
-                    div.className = "p-3 hover:bg-slate-50 cursor-pointer text-sm border-b last:border-none";
-                    div.innerText = feature.place_name;
-                    div.onclick = () => {
-                        addStep(feature); 
-                        cancelInlineSearch(); // Closes the pop-up after adding
-                    };
-                    inlineResults.appendChild(div);
-                });
-            } catch (err) { console.error("Inline search error:", err); }
+                if (data.suggestions) {
+                    data.suggestions.forEach(suggestion => {
+                        const div = document.createElement('div');
+                        div.className = "p-3 hover:bg-slate-50 cursor-pointer text-sm border-b last:border-none";
+                        
+                        div.innerHTML = `
+                            <div class="font-bold">${suggestion.name}</div>
+                            <div class="text-[10px] text-slate-400 uppercase tracking-tight">${suggestion.place_formatted}</div>
+                        `;
+
+                        div.onclick = async () => {
+                            const retrieveUrl = `https://api.mapbox.com/search/searchbox/v1/retrieve/${suggestion.mapbox_id}?access_token=${MAPBOX_TOKEN}&session_token=${inlineSessionToken}`;
+                            const detailRes = await fetch(retrieveUrl);
+                            const detailData = await detailRes.json();
+                            
+                            if (detailData.features && detailData.features[0]) {
+                                addStep(detailData.features[0]); 
+                                cancelInlineSearch(); // Closes pop-up
+                                inlineSessionToken = Math.random().toString(36).substring(2, 15); // Refresh token
+                            }
+                        };
+                        inlineResults.appendChild(div);
+                    });
+                }
+            } catch (err) { 
+                console.error("Inline search error:", err); 
+            }
         });
     }
 });
@@ -362,7 +385,7 @@ function syncCalendarOnly() {
                 const nextArrival = document.getElementById(`date-badge-${nextId}`)?.dataset.fullDate;
                 if (nextArrival) actualEnd = nextArrival;
             }
-            events.push({ 
+            events.push({
                 title: `📍 ${city}`, 
                 start: arrivalDate, 
                 end: actualEnd, 
@@ -622,6 +645,9 @@ async function calculateRouting() {
 const searchInput = document.getElementById('city-search');
 const resultsContainer = document.getElementById('autocomplete-results');
 
+// Add a session token for better performance/billing (re-generate when search is cleared)
+let sessionToken = Math.random().toString(36).substring(2, 15);
+
 if (searchInput) {
     searchInput.addEventListener('input', async (e) => {
         const query = e.target.value;
@@ -630,8 +656,8 @@ if (searchInput) {
             return;
         }
 
-        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=place,address&limit=10`;
-        
+        // 1. Suggest API - Forces English results with 'language=en'
+        const url = `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(query)}&language=en&types=place,city,locality,neighborhood&access_token=${MAPBOX_TOKEN}&session_token=${sessionToken}`;        
         try {
             const res = await fetch(url);
             const data = await res.json();
@@ -639,15 +665,47 @@ if (searchInput) {
             resultsContainer.innerHTML = '';
             resultsContainer.classList.remove('hidden');
 
-            data.features.forEach(feature => {
-                const div = document.createElement('div');
-                div.className = "p-3 hover:bg-slate-50 cursor-pointer text-sm border-b last:border-none";
-                div.innerText = feature.place_name;
-                div.onclick = () => addStep(feature);
-                resultsContainer.appendChild(div);
-            });
+            if (data.suggestions) {
+                data.suggestions.forEach(suggestion => {
+                    const div = document.createElement('div');
+                    div.className = "p-3 hover:bg-slate-50 cursor-pointer text-sm border-b last:border-none";
+                    
+                    // Show Name and formatted location (e.g., "Bangkok, Thailand")
+                    div.innerHTML = `
+                        <div class="font-bold">${suggestion.name}</div>
+                        <div class="text-xs text-slate-500">${suggestion.place_formatted}</div>
+                    `;
+
+                    div.onclick = async () => {
+                        // 2. Retrieve API - Get coordinates and full English details
+                        const retrieveUrl = `https://api.mapbox.com/search/searchbox/v1/retrieve/${suggestion.mapbox_id}?access_token=${MAPBOX_TOKEN}&session_token=${sessionToken}`;
+                        const detailRes = await fetch(retrieveUrl);
+                        const detailData = await detailRes.json();
+                        
+                        if (detailData.features && detailData.features[0]) {
+                            const feature = detailData.features[0];
+                            
+                            // Map the SearchBox properties to your addStep function
+                            const formattedFeature = {
+                                name: feature.properties.name,
+                                country: feature.properties.context?.country?.name || '',
+                                coordinates: feature.geometry.coordinates, // [lng, lat]
+                                full_label: feature.properties.full_address || feature.properties.place_formatted
+                            };
+
+                            addStep(formattedFeature);
+                            
+                            // Reset UI
+                            resultsContainer.classList.add('hidden');
+                            searchInput.value = '';
+                            sessionToken = Math.random().toString(36).substring(2, 15); // Refresh token
+                        }
+                    };
+                    resultsContainer.appendChild(div);
+                });
+            }
         } catch (err) {
-            console.error("Search error:", err);
+            console.error("SearchBox error:", err);
         }
     });
 }
@@ -675,34 +733,38 @@ async function addStep(feature) {
 
     const activeInsertIndex = insertAtIndex;
 
-    const [lon, lat] = feature.center;
-    const cityName = feature.text;
+    // SearchBox uses geometry.coordinates [lon, lat]
+    const [lon, lat] = feature.geometry.coordinates;
+    
+    // SearchBox stores the name in properties
+    const cityName = feature.properties.name;
     
     let countryName = "Inconnu";
     let countryCode = "";
 
-    if (feature.context) {
-        const countryContext = feature.context.find(c => c.id.startsWith('country'));
-        if (countryContext) {
-            countryName = countryContext.text;
-            countryCode = countryContext.short_code ? countryContext.short_code.toUpperCase() : "";
-        }
+    const context = feature.properties.context;
+
+    if (context && context.country) {
+        countryName = context.country.name;
+        countryCode = context.country.country_code_alpha_2 || "";
+    } else if (feature.properties.full_address) {
+        // Fallback: Try to parse the country from the end of the full address string
+        const parts = feature.properties.full_address.split(',');
+        countryName = parts[parts.length - 1].trim();
     }
 
     let position = activeInsertIndex !== null ? activeInsertIndex + 1 : document.querySelectorAll('.step-container').length;
 
-    console.log("Starting addStep. Global index was:", activeInsertIndex, "Calculated position:", position);
-
     const newStep = {
         city_name: cityName,
         country: countryName,
-        country_code: countryCode,
+        country_code: countryCode.toUpperCase(),
         lat: lat,
         lon: lon,
         position: position,
         nights: 1,
         transport_mode: 'stop',
-        is_visiting: true
+        is_visiting: true // This matches your new Neon column!
     };
 
     try {
@@ -715,27 +777,21 @@ async function addStep(feature) {
         if (response.ok) {
             const savedStep = await response.json();
             
-            // 1. Reset insertion UI and variables IMMEDIATELY
+            // Reset insertion UI
             const isInserting = activeInsertIndex !== null;
-
-            console.log("insert index: ", insertAtIndex)
-            console.log("position index: ", position)
-            console.log("isInserting: ", isInserting)
-
             insertAtIndex = null; 
+            
             const label = document.getElementById('insert-label');
             if (label) label.classList.add('hidden');
             
-            // 2. Clear searches
+            // Clear searches
             if (searchInput) searchInput.value = '';
             if (resultsContainer) resultsContainer.classList.add('hidden');
 
-            // 3. Update the UI
+            // Update the UI
             if (isInserting) {
-                // Reload everything to get the new sorted order from DB
                 await loadItinerary();
             } else {
-                // Just add to the end
                 renderStep(savedStep);
                 calculateRouting();
             }
@@ -869,8 +925,6 @@ function openInlineSearch(event, stepId) {
     const steps = Array.from(document.querySelectorAll('.step-container'));
     insertAtIndex = steps.findIndex(el => el.id === `step-${stepId}`);
     
-    console.log("Inline search opened. Setting insertAtIndex to:", insertAtIndex);
-
     const modal = document.getElementById('inline-search-modal');
     if (!modal) return;
     
@@ -879,7 +933,7 @@ function openInlineSearch(event, stepId) {
     // Position modal relative to the clicked button
     const rect = event.currentTarget.getBoundingClientRect();
     modal.style.top = `${rect.bottom + window.scrollY + 5}px`;
-    modal.style.left = `${rect.left + window.scrollX - 120}px`; // Shifted left to center it
+    modal.style.left = `${rect.left + window.scrollX - 120}px`;
     
     document.getElementById('inline-search-input').focus();
 }
