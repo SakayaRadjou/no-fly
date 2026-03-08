@@ -51,32 +51,24 @@
     </header>
 
     <main id="view-map" class="view-container active flex flex-col md:flex-row p-2 md:p-4 gap-4">
-        <aside class="w-full md:w-96 bg-white rounded-xl shadow-md p-4 border border-slate-200 order-2 md:order-1 sidebar-scroll">
-            <div class="mb-6">
-                <label class="block text-sm font-semibold text-slate-700 mb-2">Add a City</label>
+        <aside class="w-full md:w-96 bg-white rounded-xl shadow-md border border-slate-200 order-2 md:order-1 sidebar-scroll relative">
+            <div class="sticky-search p-4">
+                <label class="block text-sm font-semibold text-slate-700 mb-2">Ajouter à la fin</label>
                 <div class="relative">
-                    <input type="text" id="city-search" placeholder="Search (e.g. Bangkok)" 
+                    <input type="text" id="city-search" placeholder="Rechercher (ex: Bangkok)" 
                         class="w-full border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base"> 
-                    <div id="autocomplete-results" class="absolute z-10 w-full bg-white border rounded-b-lg shadow-xl hidden"></div>
+                    <div id="autocomplete-results" class="absolute z-10 w-full bg-white border rounded-b-lg shadow-xl hidden max-h-60 overflow-y-auto"></div>
                 </div>
-                <p id="insert-label" class="text-xs text-blue-500 mt-2 hidden italic">Inserting...</p>
             </div>
 
-            <div class="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
+            <div class="mb-4 mx-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
                 <label class="block text-[10px] font-bold text-blue-500 uppercase mb-1">Date de départ</label>
                 <input type="date" id="trip-start-date" value="2026-03-07" 
                     class="w-full bg-white border-none rounded text-sm p-1 outline-none"
                     onchange="calculateItineraryDates()">
             </div>
 
-            <div class="flex justify-center mb-4">
-                <button onclick="setInsertPosition(-1)" class="group flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-blue-500">
-                    <span class="bg-slate-100 group-hover:bg-blue-100 rounded-full p-1">+</span>
-                    Commencer ici
-                </button>
-            </div>
-
-            <div id="itinerary-list" class="space-y-1"></div>
+            <div id="itinerary-list" class="space-y-1 px-4 pb-4"></div>
         </aside>
 
         <section class="flex-1 relative order-1 md:order-2">
@@ -106,6 +98,14 @@
         <div id="calendar-el" class="h-full"></div>
     </div>
 
+    <div id="inline-search-modal" class="hidden absolute bg-white shadow-2xl border border-slate-200 rounded-lg p-3 z-[2000] w-72">
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-xs font-bold text-slate-500">Insérer une étape</span>
+            <button onclick="cancelInlineSearch()" class="text-slate-400 hover:text-red-500">✕</button>
+        </div>
+        <input type="text" id="inline-search-input" placeholder="Rechercher une ville..." class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+        <div id="inline-autocomplete-results" class="w-full bg-white border mt-1 rounded shadow-lg hidden max-h-48 overflow-y-auto"></div>
+    </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 </body>

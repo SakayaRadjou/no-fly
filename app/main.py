@@ -129,6 +129,14 @@ def read_trip(trip_id: int, db: Session = Depends(get_db), role: str = Depends(v
 # PROTECTED: Add Step (Admin Only)
 @app.post("/trips/{trip_id}/steps/", response_model=schemas.Step)
 def add_step(trip_id: int, step: schemas.StepCreate, db: Session = Depends(get_db), role: str = Depends(verify_admin)):
+    # 1. Shift positions to make a "hole" for the new step
+    # We find all steps in this trip that have a position >= the new position
+    db.query(models.Step).filter(
+        models.Step.trip_id == trip_id,
+        models.Step.position >= step.position
+    ).update({"position": models.Step.position + 1}, synchronize_session=False)
+
+    # 2. Insert the new step into that "hole"
     db_step = models.Step(**step.model_dump(), trip_id=trip_id)
     db.add(db_step)
     db.commit()
@@ -157,7 +165,18 @@ def delete_step(step_id: int, db: Session = Depends(get_db), role: str = Depends
     if not db_step:
         raise HTTPException(status_code=404, detail="Step not found")
     
+    saved_position = db_step.position
+    saved_trip_id = db_step.trip_id
+
+    # 1. Delete the step
     db.delete(db_step)
+    
+    # 2. Shift everything after it DOWN to close the gap
+    db.query(models.Step).filter(
+        models.Step.trip_id == saved_trip_id,
+        models.Step.position > saved_position
+    ).update({"position": models.Step.position - 1}, synchronize_session=False)
+    
     db.commit()
     return {"message": "Step deleted successfully"}
 

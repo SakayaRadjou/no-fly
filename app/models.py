@@ -41,6 +41,7 @@ class Step(Base):
     country_code = Column(String, nullable=True)
     lat = Column(Float, nullable=False)
     lon = Column(Float, nullable=False)
+    visiting = Column(Boolean, default=True)
     
     # Phase 2 & 3: Segment & Stay Data
     # We store mode and co2 here to represent the leg ARRIVING at this city.

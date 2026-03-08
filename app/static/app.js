@@ -12,6 +12,15 @@ let routeLines = [];
 let insertAtIndex = null;
 let calendar;
 
+const TRANSPORT_CONFIG = {
+    voiture: { label: '🚗 Voiture', color: '#fa2f2f', profile: 'driving', dashed: false },
+    stop:    { label: '👍 Stop',    color: '#3b82f6', profile: 'driving', dashed: false },
+    bus:     { label: '🚌 Bus',     color: '#f59e0b', profile: 'driving', dashed: false },
+    pied:    { label: '🚶 Pieds',   color: '#1ff50b', profile: 'walking', dashed: false },
+    train:   { label: '🚆 Train',   color: '#0043a0', profile: null,      dashed: true  },
+    ferry:   { label: '⛴ Ferry',   color: '#4d4d4d', profile: null,      dashed: true  }
+};
+
 // Helper to wait between API calls (for weather rate limits)
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -19,23 +28,87 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // INITIALIZATION & MAP SETUP
 // ==========================================
 
+// 1. Initialize Map
+const map = L.map('map', { 
+    zoomControl: false,
+    maxBoundsViscosity: 1.0 
+}).setView([13.7563, 100.5018], 5);
+
+// 2. Mapbox English-First Tile Layer
 // Initialize Map
-const map = L.map('map', { zoomControl: false }).setView([13.7563, 100.5018], 5);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
     attribution: '© CARTO',
     subdomains: 'abcd',
     maxZoom: 20
 }).addTo(map);
+
+// 3. Repositioned Controls
 L.control.zoom({ position: 'topright' }).addTo(map);
 
-const customIcon = L.divIcon({
-    className: 'custom-pin',
-    html: `<div class="pin-wrapper"><div class="pin-dot"></div><div class="pin-pulse"></div></div>`,
+// 4. Pins
+const getCustomIcon = (number, isVisiting) => L.divIcon({
+    className: `custom-pin`,
+    html: `<div class="pin-wrapper">
+             <div class="pin-dot" style="background-color: ${!isVisiting ? '#a6c6f9ff' : '#3b82f6'}; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: bold; border: 2px solid white; z-index: 2; position: relative;">
+                ${number}
+             </div>
+             <div class="pin-pulse" style="background-color: ${!isVisiting ? '#a6c6f9ff' : '#3b82f6'};"></div>
+           </div>`,
     iconSize: [30, 30],
-    iconAnchor: [15, 15]
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -15]
 });
 
-// App Startup
+// 5. Legend
+const legend = L.control({ position: 'bottomright' });
+
+legend.onAdd = function (map) {
+    const div = L.DomUtil.create('div', 'map-legend');
+    
+    // 1. Create the Legend Items HTML
+    const itemsHtml = Object.entries(TRANSPORT_CONFIG).map(([key, cfg]) => {
+        const lineStyle = cfg.dashed 
+            ? `border-color: ${cfg.color};` 
+            : `background-color: ${cfg.color};`;
+        
+        return `
+            <div class="legend-item">
+                <div class="legend-line ${cfg.dashed ? 'dashed' : ''}" style="${lineStyle}"></div>
+                <span style="font-size: 13px;">${cfg.label}</span>
+            </div>
+        `;
+    }).join('');
+
+    // 2. Set the full structure
+    div.innerHTML = `
+        <div class="legend-header" id="legend-toggle">
+            <strong style="font-size: 12px; color: #666;">LEGENDE</strong>
+            <span id="legend-icon">▼</span>
+        </div>
+        <div class="legend-content">
+            ${itemsHtml}
+        </div>
+    `;
+
+    // 3. Add Toggle Logic
+    L.DomEvent.on(div, 'click', function (e) {
+        // We only want the toggle to trigger when clicking the header
+        const header = div.querySelector('.legend-header');
+        if (header.contains(e.target)) {
+            div.classList.toggle('collapsed');
+            const icon = div.querySelector('#legend-icon');
+            icon.innerText = div.classList.contains('collapsed') ? '▲' : '▼';
+        }
+    });
+
+    // Prevent map clicks from leaking through
+    L.DomEvent.disableClickPropagation(div);
+
+    return div;
+};
+
+legend.addTo(map);
+
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Initialize Calendar
     const calendarEl = document.getElementById('calendar-el');
@@ -44,15 +117,44 @@ document.addEventListener('DOMContentLoaded', async () => {
         height: '100%',
         headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
         eventColor: '#3b82f6',
-        displayEventTime: false,
-        eventDidMount: function(info) {
-            info.el.title = info.event.title; 
-        }
+        displayEventTime: false
     });
 
-    // 2. Load Trips for Dropdown & Initialize Data
+    // 2. Load Data
     await loadTrips();
     await loadItinerary();
+
+    // 3. New: Initialize Inline Search (Pop-up)
+    const inlineInput = document.getElementById('inline-search-input');
+    const inlineResults = document.getElementById('inline-autocomplete-results');
+
+    if (inlineInput) {
+        inlineInput.addEventListener('input', async (e) => {
+            const query = e.target.value;
+            if (query.length < 3) {
+                inlineResults.classList.add('hidden');
+                return;
+            }
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=place,address&limit=5`;
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                inlineResults.innerHTML = '';
+                inlineResults.classList.remove('hidden');
+
+                data.features.forEach(feature => {
+                    const div = document.createElement('div');
+                    div.className = "p-3 hover:bg-slate-50 cursor-pointer text-sm border-b last:border-none";
+                    div.innerText = feature.place_name;
+                    div.onclick = () => {
+                        addStep(feature); 
+                        cancelInlineSearch(); // Closes the pop-up after adding
+                    };
+                    inlineResults.appendChild(div);
+                });
+            } catch (err) { console.error("Inline search error:", err); }
+        });
+    }
 });
 
 // Initialize Drag & Drop
@@ -69,6 +171,21 @@ const sortable = new Sortable(listElement, {
     }
 });
 
+async function toggleVisiting(id, isVisiting) {
+    if (isGuest) return;
+    const stepEl = document.getElementById(`step-${id}`);
+    if (stepEl) stepEl.dataset.visiting = isVisiting;
+    
+    recalculateNumbers();
+    calculateItineraryDates(); // This will recalculate skipping this step
+    calculateRouting();
+    
+    await fetch(`/steps/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_visiting: isVisiting })
+    });
+}
 
 // ==========================================
 // TRIP MANAGEMENT (MULTI-TRIP)
@@ -162,27 +279,37 @@ function calculateItineraryDates() {
 
     let calendarDate = new Date(startInput.value);
     const steps = Array.from(document.querySelectorAll('.step-container'));
+    
+    let validIndex = 0; // Tracks index only for valid visited stops
 
-    steps.forEach((stepElement, index) => {
+    steps.forEach((stepElement) => {
         const stepId = parseInt(stepElement.id.replace('step-', ''));
+        const badge = document.getElementById(`date-badge-${stepId}`);
+        const marker = markersMap[stepId];
+
+        // 1. Skip date calculation if not visiting
+        if (stepElement.dataset.visiting === 'false') {
+            if (badge) {
+                badge.innerText = 'Optionnel';
+                badge.dataset.fullDate = '';
+            }
+            if (marker) marker.bindPopup(`<strong>${stepElement.querySelector('.font-semibold').innerText}</strong><br><em>Optionnel (non visité)</em>`);
+            return;
+        }
+
         const isFixed = document.getElementById(`fix-check-${stepId}`).checked;
         const fixedVal = document.getElementById(`fixed-date-val-${stepId}`).value;
         const nights = parseInt(document.getElementById(`nights-val-${stepId}`).innerText) || 0;
-        
-        // Handle custom format "HH:mm" from our text input bypass
         const timeVal = document.getElementById(`duration-input-${stepId}`)?.value || "00:00";
         const hours = parseInt(timeVal.split(':')[0]) || 0;
+        const transport = document.querySelector(`#step-${stepId} .transport-select`)?.value || "voiture";
 
-        // --- ANCHOR LOGIC ---
         if (isFixed && fixedVal) {
             calendarDate = new Date(fixedVal);
-        } else if (index > 0 && hours >= 14) {
+        } else if (validIndex > 0 && hours >= 14) {
             calendarDate.setDate(calendarDate.getDate() + 1);
         }
 
-        const badge = document.getElementById(`date-badge-${stepId}`);
-        
-        // Date Formatting: "3 Mars"
         const day = calendarDate.getDate();
         const month = calendarDate.toLocaleDateString('fr-FR', { month: 'long' });
         const formattedDateFR = `${day} ${month.charAt(0).toUpperCase() + month.slice(1)}`;
@@ -193,6 +320,23 @@ function calculateItineraryDates() {
 
         calendarDate.setDate(calendarDate.getDate() + nights);
         badge.dataset.departureDate = calendarDate.toISOString().split('T')[0];
+
+        // 2. Add clickable popup to Map Marker
+        if (marker) {
+            const config = TRANSPORT_CONFIG[transport];
+            const displayLabel = config ? config.label : transport;
+
+            marker.bindPopup(`
+                <div class="text-sm p-1">
+                    <strong class="text-base">${stepElement.querySelector('.font-semibold').innerText}</strong><br>
+                    🗓 Arrivée: ${formattedDateFR}<br>
+                    🌙 Nuits: ${nights}<br>
+                    🛣️ Transport: <span class="font-medium">${displayLabel}</span>
+                </div>
+            `);
+        }
+        
+        validIndex++;
     });
 
     syncCalendarOnly();
@@ -200,8 +344,8 @@ function calculateItineraryDates() {
 
 function syncCalendarOnly() {
     const events = [];
-    const steps = Array.from(document.querySelectorAll('.step-container'));
-    
+    const steps = Array.from(document.querySelectorAll('.step-container')).filter(el => el.dataset.visiting !== 'false');
+
     steps.forEach((stepEl, i) => {
         const id = parseInt(stepEl.id.replace('step-', ''));
         const city = stepEl.querySelector('.font-semibold').innerText;
@@ -315,6 +459,7 @@ function renderStep(step) {
     item.dataset.countryCode = step.country_code || ""; 
     item.dataset.lat = step.lat;
     item.dataset.lon = step.lon;
+    item.dataset.visiting = step.is_visiting !== false;
 
     item.innerHTML = `
         <div class="leg-info ml-14 mb-2 flex items-center gap-2 text-xs font-medium text-slate-400">
@@ -356,13 +501,15 @@ function renderStep(step) {
                         <div id="transport-container-${step.id}" class="mt-2 hidden">
                             <select class="transport-select text-[11px] p-1 border rounded bg-slate-50 outline-none" 
                                     onchange="handleTransportChange(${step.id}, this.value)" onclick="event.stopPropagation()">
-                                <option value="voiture" ${currentMode === 'voiture' ? 'selected' : ''}>🚗 Voiture</option>
-                                <option value="stop" ${currentMode === 'stop' ? 'selected' : ''}>👍 Stop</option>
-                                <option value="bus" ${currentMode === 'bus' ? 'selected' : ''}>🚌 Bus</option>
-                                <option value="pied" ${currentMode === 'pied' ? 'selected' : ''}>🚶 Pieds</option>
-                                <option value="train" ${currentMode === 'train' ? 'selected' : ''}>🚆 Train</option>
-                                <option value="ferry" ${currentMode === 'ferry' ? 'selected' : ''}>⛴ Ferry</option>
+                                ${Object.entries(TRANSPORT_CONFIG).map(([key, cfg]) => `
+                                    <option value="${key}" ${currentMode === key ? 'selected' : ''}>
+                                        ${cfg.label}
+                                    </option>
+                                `).join('')}
                             </select>
+                            <label class="ml-2 text-[10px] text-slate-500 flex items-center inline-flex gap-1 mt-1">
+                                <input type="checkbox" ${step.is_visiting !== false ? 'checked' : ''} onchange="toggleVisiting(${step.id}, this.checked)"> Visite confirmée
+                            </label>
                         </div>
                     </div>
                 </div>
@@ -387,24 +534,17 @@ function renderStep(step) {
         </div>
 
         <div class="admin-only insert-connector flex justify-center py-2 relative z-30">
-            <button onclick="setInsertPosition(${step.id})" 
+            <button onclick="openInlineSearch(event, ${step.id})"
                 class="bg-white text-blue-400 border border-blue-100 rounded-full p-1 shadow-sm hover:bg-blue-500 hover:text-white transition-all">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4v16m8-8H4" /></svg>
             </button>
         </div>
     `;
 
-    // Add to DOM
-    if (insertAtIndex !== null) {
-        listElement.insertBefore(item, listElement.children[insertAtIndex + 1] || null);
-        insertAtIndex = null;
-        document.getElementById('insert-label').classList.add('hidden');
-    } else {
-        listElement.appendChild(item);
-    }
+    listElement.appendChild(item);
     
     // Add Marker to map
-    const marker = L.marker([step.lat, step.lon], { icon: customIcon }).addTo(map);
+    const marker = L.marker([step.lat, step.lon]).addTo(map);
     markersMap[step.id] = marker;
 
     recalculateNumbers();
@@ -418,60 +558,62 @@ function renderStep(step) {
 async function calculateRouting() {
     routeLines.forEach(l => map.removeLayer(l));
     routeLines = [];
-    const steps = Array.from(document.querySelectorAll('.step-container'));
+    
+    const steps = Array.from(document.querySelectorAll('.step-container'))
+                       .filter(el => el.dataset.visiting !== 'false');
     
     for (let i = 1; i < steps.length; i++) {
         const currId = parseInt(steps[i].id.replace('step-', ''));
         const prevId = parseInt(steps[i-1].id.replace('step-', ''));
         
-        const modeSelect = document.querySelector(`#step-${currId} .transport-select`);
-        const mode = modeSelect ? modeSelect.value : 'voiture';
+        const modeKey = document.querySelector(`#step-${currId} .transport-select`)?.value || 'voiture';
+        const config = TRANSPORT_CONFIG[modeKey]; // Get settings from our dictionary
         const input = document.getElementById(`duration-input-${currId}`);
 
         const start = markersMap[prevId].getLatLng();
         const end = markersMap[currId].getLatLng();
 
-        if (['voiture', 'stop', 'bus', 'pied'].includes(mode)) {
-            const profile = mode === 'pied' ? 'walking' : 'driving';
+        // 1. Logic for API-based routes (Roads/Paths)
+        if (config.profile) {
             try {
-                const res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/${profile}/${start.lng},${start.lat};${end.lng},${end.lat}?geometries=geojson&access_token=${MAPBOX_TOKEN}`);
+                const res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/${config.profile}/${start.lng},${start.lat};${end.lng},${end.lat}?geometries=geojson&access_token=${MAPBOX_TOKEN}`);
                 const data = await res.json();
                 
                 if(data.routes && data.routes.length > 0) {
-                    const line = L.polyline(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), { color: '#3b82f6', weight: 3, opacity: 0.5 }).addTo(map);
+                    const line = L.polyline(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), { 
+                        color: config.color, 
+                        weight: 4, 
+                        opacity: 0.7 
+                    }).addTo(map);
                     routeLines.push(line);
                     
                     let dur = data.routes[0].duration;
-                    if (mode === 'stop') dur *= 1.5;
-                    if (mode === 'bus') dur *= 1.1;
+                    if (modeKey === 'stop') dur *= 1.5;
+                    if (modeKey === 'bus') dur *= 1.1;
 
-                    let h = Math.floor(dur / 3600);
+                    let h = Math.min(23, Math.floor(dur / 3600));
                     let m = Math.floor((dur % 3600) / 60);
-
-                    // Cap at 23:59 so the HTML <input type="time"> doesn't crash
-                    if (h > 23) {
-                        h = 23;
-                        m = 59;
-                    }
-
                     const formatted = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-                    // Only overwrite if empty/default AND user hasn't edited
                     if ((input.value === "00:00" || input.value === "") && !input.dataset.userEdited) {
                         input.value = formatted;
                     }
                 }
             } catch(e) { console.error("Route error", e); }
-        } else {
-            // Dash line for Train/Ferry
-            const line = L.polyline([start, end], { color: '#cbd5e1', weight: 2, dashArray: '5, 10' }).addTo(map);
+        } 
+        // 2. Logic for Manual/Direct lines (Train/Ferry)
+        else {
+            const line = L.polyline([start, end], { 
+                color: config.color, 
+                weight: 3, 
+                dashArray: config.dashed ? '10, 10' : null,
+                opacity: 0.6
+            }).addTo(map);
             routeLines.push(line);
         }
     }
-    // Update calendar dates after routing might have changed durations
     calculateItineraryDates();
 }
-
 
 // ==========================================
 // SEARCH & AUTOCOMPLETE
@@ -488,7 +630,7 @@ if (searchInput) {
             return;
         }
 
-        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=place,address&limit=5`;
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=place,address&limit=10`;
         
         try {
             const res = await fetch(url);
@@ -511,8 +653,15 @@ if (searchInput) {
 }
 
 document.addEventListener('click', (e) => {
+    // Hide main search results
     if (searchInput && !searchInput.contains(e.target)) {
         if(resultsContainer) resultsContainer.classList.add('hidden');
+    }
+
+    const inlineModal = document.getElementById('inline-search-modal');
+    // We check if the click was NOT on the modal and NOT on one of the "+" buttons
+    if (inlineModal && !inlineModal.contains(e.target) && !e.target.closest('.insert-connector')) {
+        cancelInlineSearch();
     }
 });
 
@@ -523,6 +672,8 @@ document.addEventListener('click', (e) => {
 
 async function addStep(feature) {
     if (isGuest) return;
+
+    const activeInsertIndex = insertAtIndex;
 
     const [lon, lat] = feature.center;
     const cityName = feature.text;
@@ -538,7 +689,9 @@ async function addStep(feature) {
         }
     }
 
-    let position = insertAtIndex !== null ? insertAtIndex + 1 : document.querySelectorAll('.step-container').length;
+    let position = activeInsertIndex !== null ? activeInsertIndex + 1 : document.querySelectorAll('.step-container').length;
+
+    console.log("Starting addStep. Global index was:", activeInsertIndex, "Calculated position:", position);
 
     const newStep = {
         city_name: cityName,
@@ -548,7 +701,8 @@ async function addStep(feature) {
         lon: lon,
         position: position,
         nights: 1,
-        transport_mode: 'voiture'
+        transport_mode: 'stop',
+        is_visiting: true
     };
 
     try {
@@ -560,15 +714,28 @@ async function addStep(feature) {
 
         if (response.ok) {
             const savedStep = await response.json();
-            searchInput.value = '';
-            resultsContainer.classList.add('hidden');
             
-            if (insertAtIndex !== null) {
-                // If inserted in middle, easiest way to fix positions is full reload
+            // 1. Reset insertion UI and variables IMMEDIATELY
+            const isInserting = activeInsertIndex !== null;
+
+            console.log("insert index: ", insertAtIndex)
+            console.log("position index: ", position)
+            console.log("isInserting: ", isInserting)
+
+            insertAtIndex = null; 
+            const label = document.getElementById('insert-label');
+            if (label) label.classList.add('hidden');
+            
+            // 2. Clear searches
+            if (searchInput) searchInput.value = '';
+            if (resultsContainer) resultsContainer.classList.add('hidden');
+
+            // 3. Update the UI
+            if (isInserting) {
+                // Reload everything to get the new sorted order from DB
                 await loadItinerary();
-                insertAtIndex = null;
-                document.getElementById('insert-label').classList.add('hidden');
             } else {
+                // Just add to the end
                 renderStep(savedStep);
                 calculateRouting();
             }
@@ -620,7 +787,32 @@ async function syncOrderToBackend() {
 // ==========================================
 
 function recalculateNumbers() {
-    document.querySelectorAll('.step-number-circle').forEach((el, i) => el.innerText = i + 1);
+    let visitingCount = 1;
+    document.querySelectorAll('.step-container').forEach((el) => {
+        const id = parseInt(el.id.replace('step-', ''));
+        const isVisiting = el.dataset.visiting !== 'false'; // true by default
+        
+        const circle = el.querySelector('.step-number-circle');
+        let displayNum = isVisiting ? visitingCount++ : '?';
+        
+        circle.innerText = displayNum;
+        
+        // Update sidebar UI colors
+        if (isVisiting) {
+            circle.classList.replace('bg-orange-50', 'bg-blue-50');
+            circle.classList.replace('text-orange-600', 'text-blue-600');
+            el.classList.remove('opacity-60');
+        } else {
+            circle.classList.replace('bg-blue-50', 'bg-orange-50');
+            circle.classList.replace('text-blue-600', 'text-orange-600');
+            el.classList.add('opacity-60');
+        }
+
+        // Update map marker icon dynamically
+        if (markersMap[id]) {
+            markersMap[id].setIcon(getCustomIcon(displayNum, isVisiting));
+        }
+    });
 }
 
 function toggleTransport(id) {
@@ -673,30 +865,35 @@ async function updateDuration(id, value) {
     calculateItineraryDates();
 }
 
-function setInsertPosition(indexOrId) {
-    if (typeof indexOrId === 'number' && indexOrId !== -1) {
-        const steps = Array.from(document.querySelectorAll('.step-container'));
-        insertAtIndex = steps.findIndex(el => el.id === `step-${indexOrId}`);
-    } else {
-        insertAtIndex = indexOrId; 
-    }
+function openInlineSearch(event, stepId) {
+    const steps = Array.from(document.querySelectorAll('.step-container'));
+    insertAtIndex = steps.findIndex(el => el.id === `step-${stepId}`);
     
-    const label = document.getElementById('insert-label');
-    if (label) {
-        label.classList.remove('hidden');
-        label.className = "mt-2 p-2 bg-blue-50 text-blue-600 rounded-lg text-xs flex justify-between items-center";
-        const positionText = insertAtIndex === -1 ? "au tout début" : `après l'étape ${insertAtIndex + 1}`;
-        label.innerHTML = `
-            <span>📍 Prochaine ville insérée <b>${positionText}</b></span>
-            <button onclick="cancelInsertion()" class="font-bold hover:text-blue-800">Annuler</button>
-        `;
-    }
+    console.log("Inline search opened. Setting insertAtIndex to:", insertAtIndex);
+
+    const modal = document.getElementById('inline-search-modal');
+    if (!modal) return;
+    
+    modal.classList.remove('hidden');
+    
+    // Position modal relative to the clicked button
+    const rect = event.currentTarget.getBoundingClientRect();
+    modal.style.top = `${rect.bottom + window.scrollY + 5}px`;
+    modal.style.left = `${rect.left + window.scrollX - 120}px`; // Shifted left to center it
+    
+    document.getElementById('inline-search-input').focus();
 }
 
-function cancelInsertion() {
+function cancelInlineSearch() {
     insertAtIndex = null;
-    const label = document.getElementById('insert-label');
-    if (label) label.classList.add('hidden');
+    const modal = document.getElementById('inline-search-modal');
+    if(modal) modal.classList.add('hidden');
+    
+    const input = document.getElementById('inline-search-input');
+    if(input) input.value = '';
+    
+    const results = document.getElementById('inline-autocomplete-results');
+    if(results) results.classList.add('hidden');
 }
 
 
@@ -720,7 +917,7 @@ async function updateAdvancedViews() {
     if (!tableBody) return;
         
     let rowsHtml = '';
-    const steps = Array.from(document.querySelectorAll('.step-container'));
+    const steps = Array.from(document.querySelectorAll('.step-container')).filter(el => el.dataset.visiting !== 'false');
     
     // 1: Sync Calendar Events & Build Table HTML
     syncCalendarOnly();

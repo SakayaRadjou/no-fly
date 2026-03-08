@@ -9,6 +9,7 @@ class StepBase(BaseModel):
     lon: float
     position: int
     nights: int = 1
+    visiting: bool = True
     country: Optional[str] = None
     country_code: Optional[str] = None
     duration: Optional[str] = None
