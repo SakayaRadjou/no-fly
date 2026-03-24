@@ -705,19 +705,11 @@ if (searchInput) {
                         const retrieveUrl = `https://api.mapbox.com/search/searchbox/v1/retrieve/${suggestion.mapbox_id}?access_token=${MAPBOX_TOKEN}&session_token=${sessionToken}`;
                         const detailRes = await fetch(retrieveUrl);
                         const detailData = await detailRes.json();
-                        
+
                         if (detailData.features && detailData.features[0]) {
                             const feature = detailData.features[0];
                             
-                            // Map the SearchBox properties to your addStep function
-                            const formattedFeature = {
-                                name: feature.properties.name,
-                                country: feature.properties.context?.country?.name || '',
-                                coordinates: feature.geometry.coordinates, // [lng, lat]
-                                full_label: feature.properties.full_address || feature.properties.place_formatted
-                            };
-
-                            addStep(formattedFeature);
+                            addStep(feature);
                             
                             // Reset UI
                             resultsContainer.classList.add('hidden');
@@ -755,26 +747,36 @@ document.addEventListener('click', (e) => {
 async function addStep(feature) {
     if (isGuest) return;
 
-    const activeInsertIndex = insertAtIndex;
-
-    // SearchBox uses geometry.coordinates [lon, lat]
-    const [lon, lat] = feature.geometry.coordinates;
+    const coords = feature.geometry?.coordinates || feature.coordinates;
+    const properties = feature.properties || feature; 
     
-    // SearchBox stores the name in properties
-    const cityName = feature.properties.name;
+    const [lon, lat] = coords;
+    const cityName = properties.name;
+
+    const activeInsertIndex = insertAtIndex;
     
     let countryName = "Inconnu";
     let countryCode = "";
 
-    const context = feature.properties.context;
+    const context = properties.context;
 
+    // 1. Check if it's inside the context object
     if (context && context.country) {
-        countryName = context.country.name;
-        countryCode = context.country.country_code_alpha_2 || "";
-    } else if (feature.properties.full_address) {
-        // Fallback: Try to parse the country from the end of the full address string
-        const parts = feature.properties.full_address.split(',');
+        countryName = context.country.name || countryName;
+        countryCode = context.country.country_code || "";
+    } 
+    // 2. Defensive check: If the user searched for a country directly, 
+    // Mapbox might put it straight on the properties object
+    else if (properties.feature_type === 'country' || properties.country_code) {
+        countryName = properties.name || countryName;
+        countryCode = properties.country_code || "";
+    }
+    // 3. Last resort fallback parsing
+    else if (properties.full_address) {
+        const parts = properties.full_address.split(',');
         countryName = parts[parts.length - 1].trim();
+    } else {
+        console.warn('[Country Logic] No country data found in context or properties.');
     }
 
     let position = activeInsertIndex !== null ? activeInsertIndex + 1 : document.querySelectorAll('.step-container').length;
@@ -788,7 +790,7 @@ async function addStep(feature) {
         position: position,
         nights: 1,
         transport_mode: 'stop',
-        is_visiting: true // This matches your new Neon column!
+        is_visiting: true
     };
 
     try {
